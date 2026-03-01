@@ -1,0 +1,29 @@
+# ============================================================================
+# Digital Signage CMS - Docker Compose (Development)
+# ============================================================================
+# Isolated PostgreSQL 15 database for local development.
+# Usage: docker compose up -d
+# ============================================================================
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: signage_cms_db
+    restart: unless-stopped
+    ports:
+      - "5435:5432"
+    environment:
+      POSTGRES_USER: cms_admin
+      POSTGRES_PASSWORD: admin123
+      POSTGRES_DB: signage_cms
+    volumes:
+      - pgdata_cms:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cms_admin -d signage_cms"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata_cms:
+    driver: local

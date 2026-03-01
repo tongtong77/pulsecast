@@ -1,0 +1,396 @@
+// ============================================================================
+// Digital Signage CMS - Enterprise Multi-Tenant Database Schema
+// ============================================================================
+// Framework : Next.js 15 (App Router)
+// Database  : PostgreSQL
+// ORM       : Prisma
+// Arch      : Multi-Tenant (Organization-scoped)
+// ============================================================================
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================================
+// ENUMS
+// ============================================================================
+
+enum Role {
+  OWNER             // Pemilik organisasi, full access
+  ADMIN             // Admin pengelola konten & device
+  REVIEWER          // Bisa approve/reject konten
+  EDITOR            // Bisa edit media & playlist, tidak bisa manage device
+  CONTENT_CREATOR   // Bisa upload & buat playlist, tapi butuh approval
+  VIEWER            // Read-only access
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+}
+
+enum DeviceStatus {
+  ONLINE
+  OFFLINE
+  PAIRING     // Belum di-pair, menunggu pairing code
+}
+
+enum DeviceOrientation {
+  LANDSCAPE
+  PORTRAIT
+}
+
+enum PlaylistStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum TransitionType {
+  NONE
+  FADE
+  SLIDE_LEFT
+  SLIDE_RIGHT
+  SLIDE_UP
+  SLIDE_DOWN
+  ZOOM_IN
+  ZOOM_OUT
+}
+
+enum OrganizationPlan {
+  FREE
+  PRO
+  ENTERPRISE
+}
+
+enum ApprovalStatus {
+  APPROVED         // Konten disetujui, boleh tayang
+  PENDING_REVIEW   // Menunggu review dari Reviewer/Admin
+  REJECTED         // Konten ditolak
+}
+
+enum LayoutType {
+  FULLSCREEN     // Satu zona fullscreen (default)
+  L_SHAPE        // Video utama + ticker samping
+  BOTTOM_TICKER  // Konten utama + running text bawah
+  SPLIT_VERTICAL // Dua zona vertikal 50/50
+}
+
+// ============================================================================
+// MULTI-TENANT: ORGANIZATION
+// ============================================================================
+
+/// Organisasi/Workspace — unit tenant utama. Semua data di-scope ke organisasi.
+model Organization {
+  id          String           @id @default(cuid())
+  name        String           // Nama organisasi
+  slug        String           @unique // URL-friendly identifier, e.g. "acme-corp"
+  logo        String?          // URL logo organisasi
+  brandColor  String           @default("#3b82f6") // Warna merek untuk white-label
+  logoUrl     String?          // URL logo kustom (override logo default)
+  plan        OrganizationPlan @default(FREE)
+  maxDevices  Int              @default(5) // Batas jumlah device per plan
+  maxStorage  BigInt           @default(536870912) // Batas storage dalam bytes (default 500MB)
+
+  // Relations
+  members         OrganizationMember[]
+  media           Media[]
+  playlists       Playlist[]
+  devices         Device[]
+  playLogs        PlayLog[]
+  schedules       Schedule[]
+  emergencyAlerts EmergencyAlert[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("organizations")
+}
+
+/// Relasi many-to-many User ↔ Organization dengan role per organisasi
+model OrganizationMember {
+  id             String       @id @default(cuid())
+  role           Role         @default(EDITOR)
+
+  // Relations
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  joinedAt       DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([userId, organizationId]) // User hanya bisa join 1x per organisasi
+  @@index([organizationId])
+  @@index([userId])
+  @@map("organization_members")
+}
+
+// ============================================================================
+// USER
+// ============================================================================
+
+/// Admin/User pengelola CMS
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  password  String   // hashed (bcrypt)
+  avatar    String?
+  isActive     Boolean  @default(true)
+  isSuperAdmin Boolean  @default(false) // Platform-level admin (SaaS operator)
+
+  // Relations
+  memberships     OrganizationMember[] // Organisasi yang diikuti user ini
+  media           Media[]              // Media yang diupload oleh user ini
+  playlists       Playlist[]           // Playlist yang dibuat oleh user ini
+  emergencyAlerts EmergencyAlert[]     // Alert darurat yang dibuat user ini
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}
+
+// ============================================================================
+// MEDIA
+// ============================================================================
+
+/// File konten media (gambar/video) yang diunggah — scoped ke Organization
+model Media {
+  id           String    @id @default(cuid())
+  name         String    // Nama tampilan file
+  originalName String    // Nama asli file saat diupload
+  type         MediaType // IMAGE atau VIDEO
+  url          String    // Path/URL ke file
+  mimeType     String    // e.g. "image/jpeg", "video/mp4"
+  fileSize     Int       // Ukuran file dalam bytes
+  duration     Int?      // Durasi default dalam detik (null untuk gambar, otomatis untuk video)
+  width        Int?      // Resolusi lebar (pixel)
+  height       Int?      // Resolusi tinggi (pixel)
+  thumbnail    String?   // Path ke thumbnail (auto-generated)
+  checksum     String    // SHA-256 hash untuk integritas & deduplikasi
+  approvalStatus ApprovalStatus @default(APPROVED) // Status approval konten
+
+  // Multi-tenant
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Uploader
+  uploadedById String
+  uploadedBy   User @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
+
+  // Relations
+  playlistItems PlaylistItem[] // Item playlist yang menggunakan media ini
+  playLogs      PlayLog[]      // Riwayat penayangan media ini
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, checksum]) // Checksum unik per organisasi (cegah duplikat)
+  @@index([organizationId])
+  @@index([type])
+  @@index([uploadedById])
+  @@map("media")
+}
+
+// ============================================================================
+// PLAYLIST
+// ============================================================================
+
+/// Kumpulan media yang diurutkan untuk ditayangkan — scoped ke Organization
+model Playlist {
+  id          String         @id @default(cuid())
+  name        String
+  description String?
+  status      PlaylistStatus @default(DRAFT)
+
+  // Multi-tenant
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Creator
+  createdById String
+  createdBy   User @relation(fields: [createdById], references: [id], onDelete: Cascade)
+
+  // Relations
+  items     PlaylistItem[] // Item-item dalam playlist ini
+  schedules Schedule[]     // Jadwal tayangan playlist ini
+  devices   Device[]       // Device yang saat ini memutar playlist ini (direct assign)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([status])
+  @@index([createdById])
+  @@map("playlists")
+}
+
+/// Relasi many-to-many antara Playlist dan Media, dengan urutan & durasi override
+model PlaylistItem {
+  id         String         @id @default(cuid())
+  order      Int            // Urutan tampil dalam playlist (0-indexed)
+  duration   Int            @default(10) // Durasi tampil dalam detik (override dari media default)
+  transition TransitionType @default(FADE) // Efek transisi ke item berikutnya
+
+  // Relations
+  playlistId String
+  playlist   Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  mediaId    String
+  media      Media    @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([playlistId, order]) // Urutan harus unik per playlist
+  @@index([playlistId])
+  @@index([mediaId])
+  @@map("playlist_items")
+}
+
+// ============================================================================
+// DEVICE
+// ============================================================================
+
+/// Layar TV/Monitor yang menampilkan konten — scoped ke Organization
+model Device {
+  id            String            @id @default(cuid())
+  name          String            // Nama device, e.g. "Lobby TV 1"
+  location      String?           // Lokasi fisik, e.g. "Gedung A, Lantai 1"
+  orientation   DeviceOrientation @default(LANDSCAPE)
+  layoutType    LayoutType        @default(FULLSCREEN)
+  tickerText    String?           // Teks berjalan untuk layout BOTTOM_TICKER
+  status        DeviceStatus      @default(PAIRING)
+  pairingCode   String?           @unique // Kode 6 digit untuk pairing (null setelah paired)
+  lastHeartbeat DateTime?         // Timestamp heartbeat terakhir dari device
+
+  // Enterprise fleet management fields
+  timezone      String            @default("Asia/Jakarta") // Timezone device
+  resolution    String?           // Resolusi layar, e.g. "1920x1080"
+  ipAddress     String?           // IP address terakhir device
+  appVersion    String?           // Versi aplikasi player di device
+
+  // Multi-tenant
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Current playlist (langsung assign tanpa schedule)
+  currentPlaylistId String?
+  currentPlaylist   Playlist? @relation(fields: [currentPlaylistId], references: [id], onDelete: SetNull)
+
+  // Relations
+  schedules Schedule[] // Jadwal tayangan untuk device ini
+  playLogs  PlayLog[]  // Riwayat penayangan dari device ini
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([status])
+  @@index([pairingCode])
+  @@map("devices")
+}
+
+// ============================================================================
+// SCHEDULE / CAMPAIGN
+// ============================================================================
+
+/// Jadwal kapan playlist tayang di device tertentu — scoped ke Organization
+model Schedule {
+  id        String   @id @default(cuid())
+  name      String   // Nama campaign/jadwal
+  priority  Int      @default(0) // Prioritas (lebih tinggi = di-override)
+  startDate DateTime // Tanggal mulai tayang
+  endDate   DateTime // Tanggal selesai tayang
+  isActive  Boolean  @default(true)
+
+  // Advanced scheduling
+  startTime  String?  // Jam mulai harian, e.g. "08:00"
+  endTime    String?  // Jam selesai harian, e.g. "17:00"
+  daysOfWeek Int[]    // Hari aktif: [1,2,3,4,5] = Senin-Jumat (ISO 8601: 1=Mon, 7=Sun)
+
+  // Multi-tenant
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Relations
+  playlistId String
+  playlist   Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  deviceId   String
+  device     Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([playlistId])
+  @@index([deviceId])
+  @@index([startDate, endDate])
+  @@index([isActive])
+  @@map("schedules")
+}
+
+// ============================================================================
+// PROOF OF PLAY (PoP) TELEMETRY
+// ============================================================================
+
+/// Log penayangan media — setiap kali item selesai diputar, satu record dicatat.
+/// Data ini digunakan untuk audit iklan, billing DOOH, dan analytics dashboard.
+model PlayLog {
+  id         String   @id @default(cuid())
+  startTime  DateTime // Waktu mulai penayangan item
+  endTime    DateTime // Waktu selesai penayangan item
+  duration   Int      // Durasi aktual penayangan dalam detik
+
+  // Relations
+  deviceId       String
+  device         Device       @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  mediaId        String
+  media          Media        @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  playlistId     String?      // Nullable — bisa dari direct assign tanpa playlist
+
+  // Multi-tenant
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId])                     // Partisi per tenant
+  @@index([deviceId, startTime])                // Query per device + range
+  @@index([mediaId, startTime])                 // Query per media + range
+  @@index([organizationId, startTime])          // Dashboard analytics
+  @@index([organizationId, mediaId, startTime]) // Composite: impressions per media
+  @@map("play_logs")
+}
+
+// ============================================================================
+// EMERGENCY ALERT SYSTEM
+// ============================================================================
+
+/// Pesan darurat yang meng-override semua layar TV di organisasi
+model EmergencyAlert {
+  id        String   @id @default(cuid())
+  message   String   // Pesan darurat, e.g. "EVAKUASI GEDUNG SEKARANG"
+  isActive  Boolean  @default(true) // Alert sedang aktif
+
+  // Multi-tenant
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Creator
+  createdById String
+  createdBy   User @relation(fields: [createdById], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  resolvedAt DateTime? // Waktu alert dimatikan
+
+  @@index([organizationId, isActive])
+  @@map("emergency_alerts")
+}
